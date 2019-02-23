@@ -1,47 +1,51 @@
 import React, { Component } from 'react'
 import './styles/app.css'
 import * as glMatrix from 'gl-matrix'
+import { loadTexture } from './lib/textureLoader'
 
 interface ProgramInfo {
   program: WebGLProgram
   attribLocations: {
     vertexPosition: number;
-    vertexColor: number;
+    textureCoord: number;
   }
   uniformLocations: {
     projectionMatrix: WebGLUniformLocation | null;
     modelViewMatrix: WebGLUniformLocation | null;
+    sampler: WebGLUniformLocation | null;
   }
 }
 
 interface Buffers {
   vertexPositions: WebGLBuffer | null
   indices: WebGLBuffer | null
-  color: WebGLBuffer | null
+  textureCoord: WebGLBuffer | null
 }
 
 const vertexShaderSource = `
   attribute vec4 vertexPosition;
-  attribute vec4 vertexColor;
+  attribute vec2 textureCoord;
 
-  varying lowp vec4 fragColor;
+  varying highp vec2 fragTexture;
 
   uniform mat4 mView;
   uniform mat4 mProj;
 
   void main()
   {
-    fragColor = vertexColor;
+    fragTexture = textureCoord;
     gl_Position = mProj * mView * vertexPosition;
   }
 `
 
 const fragmentShaderSource = `
-  varying lowp vec4 fragColor;
+  varying highp vec2 fragTexture;
+
+  uniform sampler2D sampler;
 
   void main()
   {
-    gl_FragColor = fragColor;
+    gl_FragColor = texture2D(sampler, fragTexture);
   }
 `
 
@@ -163,13 +167,37 @@ export default class App extends Component<{}, {}> {
     ]
 
     // prettier-ignore
-    const faceColors = [
-      [1.0, 1.0, 1.0, 1.0],    // Front face: white
-      [1.0, 0.0, 0.0, 1.0],    // Back face: red
-      [0.0, 1.0, 0.0, 1.0],    // Top face: green
-      [0.0, 0.0, 1.0, 1.0],    // Bottom face: blue
-      [1.0, 1.0, 0.0, 1.0],    // Right face: yellow
-      [1.0, 0.0, 1.0, 1.0]     // Left face: purple
+    const textureCoordinates = [
+    // Front
+      0.0,  0.0,
+      1.0,  0.0,
+      1.0,  1.0,
+      0.0,  1.0,
+    // Back
+      0.0,  0.0,
+      1.0,  0.0,
+      1.0,  1.0,
+      0.0,  1.0,
+    // Top
+      0.0,  0.0,
+      1.0,  0.0,
+      1.0,  1.0,
+      0.0,  1.0,
+    // Bottom
+      0.0,  0.0,
+      1.0,  0.0,
+      1.0,  1.0,
+      0.0,  1.0,
+    // Right
+      0.0,  0.0,
+      1.0,  0.0,
+      1.0,  1.0,
+      0.0,  1.0,
+    // Left
+      0.0,  0.0,
+      1.0,  0.0,
+      1.0,  1.0,
+      0.0,  1.0
     ]
 
     // Create buffer for the box vertex positions
@@ -195,25 +223,19 @@ export default class App extends Component<{}, {}> {
       gl.STATIC_DRAW
     )
 
-    // Convert the array of colors into a table for all the vertices.
-    // Repeat each color four times for the four vertices of the face
-    let colors: number[] = []
-
-    for (let j = 0; j < faceColors.length; ++j) {
-      const c = faceColors[j]
-
-      // Repeat each color four times for the four vertices of the face
-      colors = colors.concat(c, c, c, c)
-    }
-
-    const vertexColorBuffer = gl.createBuffer()
-    gl.bindBuffer(gl.ARRAY_BUFFER, vertexColorBuffer)
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors), gl.STATIC_DRAW)
+    // Create buffer for the box face textures
+    const textureCoordBuffer = gl.createBuffer()
+    gl.bindBuffer(gl.ARRAY_BUFFER, textureCoordBuffer)
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      new Float32Array(textureCoordinates),
+      gl.STATIC_DRAW
+    )
 
     return {
       vertexPositions: boxVertexPositionBuffer,
       indices: boxIndexBuffer,
-      color: vertexColorBuffer
+      textureCoord: textureCoordBuffer
     }
   }
 
@@ -221,6 +243,7 @@ export default class App extends Component<{}, {}> {
     gl: WebGLRenderingContext,
     programInfo: ProgramInfo,
     buffers: Buffers,
+    texture: WebGLTexture,
     deltaTime: number
   ) => {
     // Set a color for the background
@@ -298,18 +321,17 @@ export default class App extends Component<{}, {}> {
     )
     gl.enableVertexAttribArray(programInfo.attribLocations.vertexPosition)
 
-    // Tell WebGL how to pull out the colors from the color
-    // buffer into the vertexColor attribute.
-    gl.bindBuffer(gl.ARRAY_BUFFER, buffers.color)
+    // Tell WebGL how to pull out the texture coordinates from buffer
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffers.textureCoord)
     gl.vertexAttribPointer(
-      programInfo.attribLocations.vertexColor,
-      4, // pull out 3 values per iteration
+      programInfo.attribLocations.textureCoord,
+      2, // pull out 2 values per iteration
       gl.FLOAT, // the data in the buffer is 32bit floats
       false, // don't normalize
       0, // how many bytes to get from one set of values to the next
       0 // how many bytes inside the buffer to start from
     )
-    gl.enableVertexAttribArray(programInfo.attribLocations.vertexColor)
+    gl.enableVertexAttribArray(programInfo.attribLocations.textureCoord)
 
     // Tell WebGL which indices to use to index the vertices
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffers.indices)
@@ -328,6 +350,14 @@ export default class App extends Component<{}, {}> {
       false,
       modelViewMatrix
     )
+    // Tell WebGL we want to affect texture unit 0
+    gl.activeTexture(gl.TEXTURE0)
+
+    // Bind the texture to texture unit 0
+    gl.bindTexture(gl.TEXTURE_2D, texture)
+
+    // Tell the shader we bound the texture to texture unit 0
+    gl.uniform1i(programInfo.uniformLocations.sampler, 0)
 
     const vertexCount = 36 // Since each face of our cube is comprised of two triangles, there are 6 vertices per side, or 36 total vertices in the cube, even though many of them are duplicates.
     gl.drawElements(gl.TRIANGLES, vertexCount, gl.UNSIGNED_SHORT, 0)
@@ -373,16 +403,19 @@ export default class App extends Component<{}, {}> {
       program: shaderProgram,
       attribLocations: {
         vertexPosition: gl.getAttribLocation(shaderProgram, 'vertexPosition'),
-        vertexColor: gl.getAttribLocation(shaderProgram, 'vertexColor')
+        textureCoord: gl.getAttribLocation(shaderProgram, 'textureCoord')
       },
       // transformation matrices
       uniformLocations: {
         projectionMatrix: gl.getUniformLocation(shaderProgram, 'mProj'),
-        modelViewMatrix: gl.getUniformLocation(shaderProgram, 'mView')
+        modelViewMatrix: gl.getUniformLocation(shaderProgram, 'mView'),
+        sampler: gl.getUniformLocation(shaderProgram, 'sampler')
       }
     }
 
     const buffers = this.initBuffers(gl)
+
+    const texture = loadTexture(gl, 'images/side1.png')
 
     let then = 0
     let renderLoop = () => {
@@ -390,10 +423,10 @@ export default class App extends Component<{}, {}> {
       const deltaTime = now - then
       then = now
 
-      if (!gl) {
+      if (!gl || !texture) {
         return
       }
-      this.drawScene(gl, programInfo, buffers, deltaTime)
+      this.drawScene(gl, programInfo, buffers, texture, deltaTime)
 
       requestAnimationFrame(renderLoop)
     }
