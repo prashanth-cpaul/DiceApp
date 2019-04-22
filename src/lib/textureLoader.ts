@@ -1,12 +1,12 @@
-//
-// Initialize a texture and load an image.
-// When the image finished loading copy it into the texture.
-//
+/**
+ * Initialize a texture and load an image.
+ * When the image finished loading copy it into the texture.
+ */
 export const loadTexture = (gl: WebGLRenderingContext, url: string) => {
   const texture = gl.createTexture()
   gl.bindTexture(gl.TEXTURE_2D, texture)
 
-  // Because images have to be download over the internet
+  // Because images have to be downloaded over the internet
   // they might take a moment until they are ready.
   // Until then put a single pixel in the texture so we can
   // use it immediately. When the image has finished downloading
