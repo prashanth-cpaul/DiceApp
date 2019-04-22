@@ -2,7 +2,8 @@ import React, { Component } from 'react'
 import './styles/app.css'
 import * as glMatrix from 'gl-matrix'
 import { loadTexture } from './lib/textureLoader'
-
+import { createShaderProgram } from './lib/shaders'
+import { initBuffers, Buffers } from './lib/initBuffers'
 interface ProgramInfo {
   program: WebGLProgram
   attribLocations: {
@@ -16,228 +17,9 @@ interface ProgramInfo {
   }
 }
 
-interface Buffers {
-  vertexPositions: WebGLBuffer | null
-  indices: WebGLBuffer | null
-  textureCoord: WebGLBuffer | null
-}
-
-const vertexShaderSource = `
-  attribute vec4 vertexPosition;
-  attribute vec2 textureCoord;
-
-  varying highp vec2 fragTexture;
-
-  uniform mat4 mView;
-  uniform mat4 mProj;
-
-  void main()
-  {
-    fragTexture = textureCoord;
-    gl_Position = mProj * mView * vertexPosition;
-  }
-`
-
-const fragmentShaderSource = `
-  varying highp vec2 fragTexture;
-
-  uniform sampler2D sampler;
-
-  void main()
-  {
-    gl_FragColor = texture2D(sampler, fragTexture);
-  }
-`
-
 let cubeRotation = 0.0
 export default class App extends Component<{}, {}> {
   // methods
-  createShader = (gl: WebGLRenderingContext, type: number) => {
-    const source =
-      type === gl.VERTEX_SHADER ? vertexShaderSource : fragmentShaderSource
-    const shader = gl.createShader(type)
-    if (!shader) {
-      console.error('An error occurred creating the shaders.')
-      return null
-    }
-    gl.shaderSource(shader, source)
-    gl.compileShader(shader)
-    // See if it compiled successfully
-
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-      console.error(
-        'An error occurred compiling the shaders: ',
-        gl.getShaderInfoLog(shader)
-      )
-      gl.deleteShader(shader)
-      return null
-    }
-
-    return shader
-  }
-
-  createShaderProgram = (gl: WebGLRenderingContext) => {
-    // Create and compile shaders
-    let vertexShader = this.createShader(gl, gl.VERTEX_SHADER)
-    let fragmentShader = this.createShader(gl, gl.FRAGMENT_SHADER)
-    if (!vertexShader || !fragmentShader) {
-      return null
-    }
-
-    let shaderProgram = gl.createProgram()
-    if (!shaderProgram) {
-      console.error('An error occurred creating the shader program.')
-      return null
-    }
-    gl.attachShader(shaderProgram, vertexShader)
-    gl.attachShader(shaderProgram, fragmentShader)
-    gl.linkProgram(shaderProgram)
-
-    if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
-      console.error(
-        'Unable to initialize the shader program: ',
-        gl.getProgramInfoLog(shaderProgram)
-      )
-      gl.deleteProgram(shaderProgram)
-      return null
-    }
-    return shaderProgram
-  }
-
-  initBuffers = (gl: WebGLRenderingContext) => {
-    // prettier-ignore
-    const boxVertexPositions = [
-      // X, Y, Z
-      // Top
-      -1.0, 1.0, -1.0,
-      -1.0, 1.0, 1.0,
-      1.0, 1.0, 1.0,
-      1.0, 1.0, -1.0,
-
-      // Left
-      -1.0, 1.0, 1.0,
-      -1.0, -1.0, 1.0,
-      -1.0, -1.0, -1.0,
-      -1.0, 1.0, -1.0,
-
-      // Right
-      1.0, 1.0, 1.0,
-      1.0, -1.0, 1.0,
-      1.0, -1.0, -1.0,
-      1.0, 1.0, -1.0,
-
-      // Front
-      1.0, 1.0, 1.0,
-      1.0, -1.0, 1.0,
-      -1.0, -1.0, 1.0,
-      -1.0, 1.0, 1.0,
-
-      // Back
-      1.0, 1.0, -1.0,
-      1.0, -1.0, -1.0,
-      -1.0, -1.0, -1.0,
-      -1.0, 1.0, -1.0,
-
-      // Bottom
-      -1.0, -1.0, -1.0,
-      -1.0, -1.0, 1.0,
-      1.0, -1.0, 1.0,
-      1.0, -1.0, -1.0
-    ]
-
-    // prettier-ignore
-    const boxIndices = [
-      // Top
-      0, 1, 2,      0, 2, 3,
-
-      // Left
-      5, 4, 6,      6, 4, 7,
-
-      // Right
-      8, 9, 10,     8, 10, 11,
-
-      // Front
-      13, 12, 14,   15, 14, 12,
-
-      // Back
-      16, 17, 18,   16, 18, 19,
-
-      // Bottom
-      21, 20, 22,   22, 20, 23
-    ]
-
-    // prettier-ignore
-    const textureCoordinates = [
-    // Front
-      0.0,  0.0,
-      1.0,  0.0,
-      1.0,  1.0,
-      0.0,  1.0,
-    // Back
-      0.0,  0.0,
-      1.0,  0.0,
-      1.0,  1.0,
-      0.0,  1.0,
-    // Top
-      0.0,  0.0,
-      1.0,  0.0,
-      1.0,  1.0,
-      0.0,  1.0,
-    // Bottom
-      0.0,  0.0,
-      1.0,  0.0,
-      1.0,  1.0,
-      0.0,  1.0,
-    // Right
-      0.0,  0.0,
-      1.0,  0.0,
-      1.0,  1.0,
-      0.0,  1.0,
-    // Left
-      0.0,  0.0,
-      1.0,  0.0,
-      1.0,  1.0,
-      0.0,  1.0
-    ]
-
-    // Create buffer for the box vertex positions
-    const boxVertexPositionBuffer = gl.createBuffer()
-    // Select the positionBuffer as the one to apply buffer
-    // operations to from here out.
-    gl.bindBuffer(gl.ARRAY_BUFFER, boxVertexPositionBuffer)
-    // Now pass the list of positions into WebGL to build the
-    // shape. We do this by creating a Float32Array from the
-    // JavaScript array, then use it to fill the current buffer.
-    gl.bufferData(
-      gl.ARRAY_BUFFER,
-      new Float32Array(boxVertexPositions),
-      gl.STATIC_DRAW
-    )
-
-    // Create buffer for the box face triangle indices
-    const boxIndexBuffer = gl.createBuffer()
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, boxIndexBuffer)
-    gl.bufferData(
-      gl.ELEMENT_ARRAY_BUFFER,
-      new Uint16Array(boxIndices),
-      gl.STATIC_DRAW
-    )
-
-    // Create buffer for the box face textures
-    const textureCoordBuffer = gl.createBuffer()
-    gl.bindBuffer(gl.ARRAY_BUFFER, textureCoordBuffer)
-    gl.bufferData(
-      gl.ARRAY_BUFFER,
-      new Float32Array(textureCoordinates),
-      gl.STATIC_DRAW
-    )
-
-    return {
-      vertexPositions: boxVertexPositionBuffer,
-      indices: boxIndexBuffer,
-      textureCoord: textureCoordBuffer
-    }
-  }
 
   drawScene = (
     gl: WebGLRenderingContext,
@@ -333,7 +115,7 @@ export default class App extends Component<{}, {}> {
     )
     gl.enableVertexAttribArray(programInfo.attribLocations.textureCoord)
 
-    // Tell WebGL which indices to use to index the vertices
+    // Tell WebGL which element indices to use to draw the shape
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffers.indices)
 
     // Tell WebGL to use our program when drawing
@@ -366,8 +148,7 @@ export default class App extends Component<{}, {}> {
     cubeRotation += deltaTime
   }
 
-  // hooks
-  componentDidMount () {
+  drawStuff = async () => {
     // Initialize webgl
     let canvas = document.getElementById('canvas') as HTMLCanvasElement
     let gl = canvas.getContext('webgl')
@@ -384,7 +165,7 @@ export default class App extends Component<{}, {}> {
     }
 
     // Create shader program and link vertex and fragment shaders
-    let shaderProgram = this.createShaderProgram(gl)
+    let shaderProgram = createShaderProgram(gl)
 
     if (!shaderProgram) {
       return
@@ -413,9 +194,10 @@ export default class App extends Component<{}, {}> {
       }
     }
 
-    const buffers = this.initBuffers(gl)
+    const diceType = 'd6'
+    const buffers = await initBuffers(gl, diceType)
 
-    const texture = loadTexture(gl, 'images/side1.png')
+    const texture = loadTexture(gl, `images/${diceType}-texture.png`)
 
     let then = 0
     let renderLoop = () => {
@@ -431,6 +213,11 @@ export default class App extends Component<{}, {}> {
       requestAnimationFrame(renderLoop)
     }
     requestAnimationFrame(renderLoop)
+  }
+
+  // hooks
+  componentDidMount () {
+    this.drawStuff().catch(err => console.log(err))
   }
 
   render () {
